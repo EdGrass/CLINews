@@ -1,0 +1,10 @@
+wheel>=0.40.0
+setuptools>=65.0.0
+lxml==5.1.0; platform_system!="Darwin"
+lxml==5.1.0; platform_system=="Darwin" and platform_machine=="arm64"
+beautifulsoup4>=4.9.0
+feedparser>=6.0.0
+pycurl>=7.45.0
+readability-lxml>=0.8.1
+aiohttp>=3.8.0
+click>=8.0.0
