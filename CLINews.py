@@ -220,14 +220,14 @@ class NewsReader:
 
     async def interactive_mode(self):
         """交互式模式，处理用户输入和显示内容"""
-        click.clear()  # 添加清屏
+        click.clear()
         while True:
             feed = click.prompt(
                 "Which feed do you want to read?",
                 prompt_suffix=" Input code (! for menu, [enter] to quit) ",
                 default="",
                 show_default=False
-            )
+            ).strip().lower()  # 添加 strip() 和 lower()
             
             if not feed:
                 break
@@ -238,20 +238,23 @@ class NewsReader:
                 
             try:
                 # 尝试从预定义源获取
-                if feed.lower() in interests:
-                    feed_data = interests[feed.lower()]
+                if feed in interests:  # 移除 lower() 因为已经在输入时处理了
+                    feed_data = interests[feed]
                     config = FeedConfig(
                         url=feed_data['url'],
                         desc=feed_data.get('desc'),
                         strip_url_parameters=feed_data.get('strip_url_parameters', True),
                         referrer=feed_data.get('referrer'),
-                        headers=feed_data.get('headers')  # 确保传递 headers
+                        headers=feed_data.get('headers')
                     )
+                    await self.display_feed(config)
                 else:
-                    # 将输入作为 URL 处理
-                    config = FeedConfig(url=feed)
-                
-                await self.display_feed(config)
+                    # 检查是否是有效的URL
+                    if feed.startswith(('http://', 'https://')):
+                        config = FeedConfig(url=feed)
+                        await self.display_feed(config)
+                    else:
+                        click.echo(f"未找到源 '{feed}'，请使用 ! 查看可用的源列表")
                 
             except Exception as e:
                 click.echo(f"Error processing feed: {e}", err=True)
