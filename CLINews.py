@@ -15,6 +15,10 @@ import curses
 import sys  
 from string import Template
 from sites import interests  
+from deep_translator import GoogleTranslator
+from langdetect import detect
+import math
+import textwrap
 
 @dataclass
 class FeedConfig:
@@ -36,6 +40,9 @@ class NewsReader:
             'User-Agent': self.ua,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
+        self.translator = GoogleTranslator(source='auto', target='zh-CN')
+        self.separator = " | "  # 改回原来的分隔符
+        self.wrap_width = (self.window_cols - len(self.separator)) // 2  # 调整宽度计算
 
     def _init_terminal_size(self) -> None:
         """初始化终端窗口大小"""
@@ -153,6 +160,123 @@ class NewsReader:
             click.echo(traceback.format_exc())  # 打印详细错误信息
         return None
 
+    async def translate_text(self, text: str) -> str:
+        """翻译文本到中文"""
+        try:
+            lang = detect(text)
+            if lang == 'zh-CN' or lang == 'zh-TW':
+                return text
+                
+            # 将文本分成小块进行翻译，避免超出长度限制
+            MAX_LENGTH = 4900  # Google Translate API 限制
+            chunks = []
+            current_chunk = []
+            current_length = 0
+            
+            for paragraph in text.split('\n'):
+                if len(paragraph) + current_length > MAX_LENGTH:
+                    if current_chunk:
+                        chunks.append('\n'.join(current_chunk))
+                        current_chunk = []
+                        current_length = 0
+                current_chunk.append(paragraph)
+                current_length += len(paragraph)
+            
+            if current_chunk:
+                chunks.append('\n'.join(current_chunk))
+            
+            translated_chunks = []
+            for chunk in chunks:
+                translated = self.translator.translate(chunk)
+                translated_chunks.append(translated)
+                
+            return '\n'.join(translated_chunks)
+        except Exception as e:
+            return f"[翻译错误: {str(e)}]"
+
+    def _get_string_width(self, s: str) -> int:
+        """计算字符串的实际显示宽度（考虑中文字符）"""
+        width = 0
+        for char in s:
+            # 使用东亚字符宽度特性
+            if ord(char) > 0x1100 and any([
+                0x4E00 <= ord(char) <= 0x9FFF,  # CJK统一汉字
+                0x3000 <= ord(char) <= 0x303F,  # CJK符号和标点
+                0xFF00 <= ord(char) <= 0xFFEF   # 全角ASCII、全角标点
+            ]):
+                width += 2
+            else:
+                width += 1
+        return width
+
+    def _truncate_to_width(self, text: str, width: int) -> str:
+        """将文本截断到指定显示宽度"""
+        current_width = 0
+        result = []
+        
+        for char in text:
+            char_width = 2 if self._get_string_width(char) > 1 else 1
+            if current_width + char_width > width:
+                break
+            result.append(char)
+            current_width += char_width
+            
+        return ''.join(result)
+
+    def format_parallel_text(self, original: str, translation: str) -> str:
+        """格式化双栏显示"""
+        # 预处理文本，移除多余空行
+        original_lines = [line for line in original.split('\n') if line.strip()]
+        translation_lines = [line for line in translation.split('\n') if line.strip()]
+        
+        # 确保两边行数相等
+        max_lines = max(len(original_lines), len(translation_lines))
+        original_lines.extend([''] * (max_lines - len(original_lines)))
+        translation_lines.extend([''] * (max_lines - len(translation_lines)))
+        
+        formatted_lines = []
+        last_line_empty = True  # 跟踪上一行是否为空
+
+        for orig, trans in zip(original_lines, translation_lines):
+            orig = orig.strip()
+            trans = trans.strip()
+            
+            # 只在段落之间添加一个空行
+            if orig or trans:  # 如果至少有一边有内容
+                if not last_line_empty and formatted_lines:
+                    formatted_lines.append('')
+                
+                # 对原文和译文分别进行包装
+                orig_wrapped = textwrap.wrap(orig, width=self.wrap_width) or ['']
+                trans_wrapped = textwrap.wrap(trans, width=self.wrap_width * 2) or ['']
+                
+                # 确保每段的行数相等
+                max_wrapped = max(len(orig_wrapped), len(trans_wrapped))
+                orig_wrapped.extend([''] * (max_wrapped - len(orig_wrapped)))
+                trans_wrapped.extend([''] * (max_wrapped - len(trans_wrapped)))
+                
+                # 处理每一行
+                for o, t in zip(orig_wrapped, trans_wrapped):
+                    left_part = self._truncate_to_width(o, self.wrap_width)
+                    right_part = self._truncate_to_width(t, self.wrap_width)
+                    
+                    left_padding = ' ' * (self.wrap_width - self._get_string_width(left_part))
+                    right_padding = ' ' * (self.wrap_width - self._get_string_width(right_part))
+                    
+                    line = f"{left_part}{left_padding}{self.separator}{right_part}{right_padding}"
+                    formatted_lines.append(line)
+                    last_line_empty = False
+            else:
+                last_line_empty = True
+        
+        # 移除开头和结尾的空行
+        while formatted_lines and not formatted_lines[0].strip():
+            formatted_lines.pop(0)
+        while formatted_lines and not formatted_lines[-1].strip():
+            formatted_lines.pop()
+            
+        return '\n'.join(formatted_lines)
+
     async def display_feed(self, feed_config: FeedConfig):
         """显示 RSS feed 内容"""
         while True:
@@ -203,11 +327,47 @@ class NewsReader:
                             margin = ' ' * 6
                             paragraphs = content.split('\n\n')
                             paragraphs = [p.strip() for p in paragraphs if p.strip()]
-                            formatted_content = '\n'.join(
-                                f"{margin}{line}" 
-                                for line in paragraphs
-                            )
-                            click.echo_via_pager(formatted_content)
+                            
+                            try:
+                                lang = detect(content)
+                                if lang != 'zh-cn' and lang != 'zh-tw':
+                                    click.echo("检测到非中文文章，正在翻译...")
+                                    # 显示原文和翻译进度提示
+                                    original_formatted = '\n'.join(
+                                        f"{margin}{line}" for line in paragraphs
+                                    )
+                                    progress_text = "[翻译进行中...]"
+                                    initial_display = self.format_parallel_text(
+                                        original_formatted, 
+                                        progress_text
+                                    )
+                                    click.echo(initial_display)
+                                    
+                                    # 进行翻译
+                                    translation = await self.translate_text(content)
+                                    trans_paragraphs = translation.split('\n\n')
+                                    trans_paragraphs = [p.strip() for p in trans_paragraphs if p.strip()]
+                                    
+                                    # 格式化双栏显示
+                                    formatted_content = self.format_parallel_text(
+                                        original_formatted,
+                                        '\n'.join(f"{margin}{line}" for line in trans_paragraphs)
+                                    )
+                                else:
+                                    # 中文文章直接显示
+                                    formatted_content = '\n'.join(
+                                        f"{margin}{line}" for line in paragraphs
+                                    )
+                                    
+                                click.clear()
+                                click.echo_via_pager(formatted_content)
+                            except Exception as e:
+                                click.echo(f"翻译过程中出错: {str(e)}")
+                                # 发生错误时显示原文
+                                formatted_content = '\n'.join(
+                                    f"{margin}{line}" for line in paragraphs
+                                )
+                                click.echo_via_pager(formatted_content)
                         else:
                             click.echo("Could not fetch article content")
                     else:
