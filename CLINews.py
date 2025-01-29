@@ -171,9 +171,9 @@ class NewsReader:
                 click.echo(f"\n  {i}.\t{title}\n  \t{link}")
 
             try:
-                choice = input("\nChoose article number (b to go back, Enter to exit): ").strip()
+                choice = input("\nChoose article number (Enter to exit): ").strip()
                 
-                if not choice or choice.lower() == 'b':
+                if not choice:
                     return
 
                 try:
@@ -213,7 +213,7 @@ class NewsReader:
                     else:
                         click.echo("Invalid article number")
                 except ValueError:
-                    if choice.lower() not in ['', 'b']:
+                    if choice:
                         click.echo("Please enter a valid number")
             except (EOFError, KeyboardInterrupt):
                 return
