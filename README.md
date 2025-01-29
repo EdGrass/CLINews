@@ -1,9 +1,16 @@
-
 ---
 
 # CLI News
 
 **CLI News** 是一个命令行新闻阅读器，支持从 **RSS feed** 获取新闻，并提供中文（或其他语言）翻译功能，帮助用户快速获取最新新闻并进行本地化阅读（上班摸鱼）。
+
+![](https://i.imgur.com/1najcuy.png)
+
+![](https://i.imgur.com/ydxAA7H.png)
+
+![](https://i.imgur.com/hnDCSWP.png)
+
+![](https://i.imgur.com/wyZgwnq.png)
 
 ---
 
@@ -118,14 +125,17 @@ interests = {
     self.translator = GoogleTranslator(source='auto', target='fr')
     ```
 
-    常见语言代码：
-    - 英语：`en`
-    - 法语：`fr`
-    - 德语：`de`
-    - 西班牙语：`es`
-    - 日语：`ja`
+    常见语言代码与 Google Translate 一致
 
-4. 保存文件并重新运行程序。
+4. 找到以下代码并类似于上面修改为不需要翻译的语言：
+
+	```python
+	lang = detect(text)
+            if lang == 'zh-CN' or lang == 'zh-TW':
+                return text
+	```
+
+5. 保存文件并重新运行程序。
 
 ---
 
@@ -146,6 +156,14 @@ interests = {
   ```sh
   sudo ln -s /Users/edgrass/Documents/Vscode/CLI\ News/CLINews.py /usr/local/bin/News
   ```
+
+---
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。查看 [LICENSE](LICENSE) 文件了解更多详细信息。
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
