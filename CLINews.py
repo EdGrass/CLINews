@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/edgrass/Documents/Vscode/CLINews/venv/bin/python3
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Any
@@ -31,7 +31,7 @@ class FeedConfig:
 class NewsReader:
     def __init__(self):
         self.ua = "cmdline-news/2.0 +http://github.com/dpapathanasiou/cmdline-news"
-        self.window_cols = 80
+        self.window_cols = 160  # 增加默认宽度以确保显示完整
         self.window_rows = 40
         self._init_terminal_size()
         self._cache: Dict[str, Tuple[float, Any]] = {}
@@ -42,7 +42,10 @@ class NewsReader:
         }
         self.translator = GoogleTranslator(source='auto', target='zh-CN')
         self.separator = " | " 
-        self.wrap_width = (self.window_cols - len(self.separator)) // 2  
+        total_width = self.window_cols - len(self.separator)
+        self.left_width = total_width // 2   # 左侧占一半
+        self.right_width = total_width - self.left_width  # 右侧占剩余空间（处理奇数情况）
+        self.wrap_width = self.left_width  # 保持兼容性
 
     def _init_terminal_size(self) -> None:
         try:
@@ -187,10 +190,13 @@ class NewsReader:
     def _get_string_width(self, s: str) -> int:
         width = 0
         for char in s:
-            if ord(char) > 0x1100 and any([
-                0x4E00 <= ord(char) <= 0x9FFF,
-                0x3000 <= ord(char) <= 0x303F,
-                0xFF00 <= ord(char) <= 0xFFEF
+            # 更精确的东亚字符宽度判断
+            if any([
+                '\u4e00' <= char <= '\u9fff',  # CJK统一汉字
+                '\u3000' <= char <= '\u303f',  # CJK标点符号
+                '\u3040' <= char <= '\u309f',  # 平假名
+                '\u30a0' <= char <= '\u30ff',  # 片假名
+                '\uff00' <= char <= '\uffef'   # 全角字符
             ]):
                 width += 2
             else:
@@ -211,50 +217,78 @@ class NewsReader:
         return ''.join(result)
 
     def format_parallel_text(self, original: str, translation: str) -> str:
-        original_lines = [line for line in original.split('\n') if line.strip()]
-        translation_lines = [line for line in translation.split('\n') if line.strip()]
+        original_paragraphs = original.split('\n')
+        translation_paragraphs = translation.split('\n')
         
-        max_lines = max(len(original_lines), len(translation_lines))
-        original_lines.extend([''] * (max_lines - len(original_lines)))
-        translation_lines.extend([''] * (max_lines - len(translation_lines)))
+        # 确保段落数量相同
+        max_paragraphs = max(len(original_paragraphs), len(translation_paragraphs))
+        original_paragraphs.extend([''] * (max_paragraphs - len(original_paragraphs)))
+        translation_paragraphs.extend([''] * (max_paragraphs - len(translation_paragraphs)))
         
         formatted_lines = []
-        last_line_empty = True  
-
-        for orig, trans in zip(original_lines, translation_lines):
-            orig = orig.strip()
-            trans = trans.strip()
-            
-            if orig or trans:  
-                if not last_line_empty and formatted_lines:
-                    formatted_lines.append('')
-                
-                orig_wrapped = textwrap.wrap(orig, width=self.wrap_width) or ['']
-                trans_wrapped = textwrap.wrap(trans, width=self.wrap_width * 2) or ['']
-                
-                max_wrapped = max(len(orig_wrapped), len(trans_wrapped))
-                orig_wrapped.extend([''] * (max_wrapped - len(orig_wrapped)))
-                trans_wrapped.extend([''] * (max_wrapped - len(trans_wrapped)))
-                
-                for o, t in zip(orig_wrapped, trans_wrapped):
-                    left_part = self._truncate_to_width(o, self.wrap_width)
-                    right_part = self._truncate_to_width(t, self.wrap_width)
-                    
-                    left_padding = ' ' * (self.wrap_width - self._get_string_width(left_part))
-                    right_padding = ' ' * (self.wrap_width - self._get_string_width(right_part))
-                    
-                    line = f"{left_part}{left_padding}{self.separator}{right_part}{right_padding}"
-                    formatted_lines.append(line)
-                    last_line_empty = False
-            else:
-                last_line_empty = True
         
+        for orig_p, trans_p in zip(original_paragraphs, translation_paragraphs):
+            if not orig_p.strip() and not trans_p.strip():
+                formatted_lines.append('')
+                continue
+            
+            # 使用相同的宽度限制处理原文和翻译
+            orig_lines = self._wrap_text_to_width(orig_p.strip(), self.left_width)
+            trans_lines = self._wrap_text_to_width(trans_p.strip(), self.right_width)
+            
+            # 确保两侧行数相同
+            max_lines = max(len(orig_lines), len(trans_lines))
+            orig_lines.extend([''] * (max_lines - len(orig_lines)))
+            trans_lines.extend([''] * (max_lines - len(trans_lines)))
+            
+            # 组装每一行
+            for o, t in zip(orig_lines, trans_lines):
+                o_width = self._get_string_width(o)
+                t_width = self._get_string_width(t)
+                
+                # 添加填充以保持对齐
+                left_padding = ' ' * (self.left_width - o_width)
+                right_padding = ' ' * (self.right_width - t_width)
+                
+                line = f"{o}{left_padding}{self.separator}{t}{right_padding}"
+                formatted_lines.append(line)
+            
+            # 段落之间添加空行
+            if orig_p.strip() or trans_p.strip():
+                formatted_lines.append('')
+        
+        # 清理多余的空行
         while formatted_lines and not formatted_lines[0].strip():
             formatted_lines.pop(0)
         while formatted_lines and not formatted_lines[-1].strip():
             formatted_lines.pop()
-            
+        
         return '\n'.join(formatted_lines)
+
+    def _wrap_text_to_width(self, text: str, width: int) -> List[str]:
+        """将文本按照指定宽度换行，考虑CJK字符"""
+        lines = []
+        remaining = text
+        
+        while remaining:
+            current_width = 0
+            cut_index = 0
+            
+            for i, char in enumerate(remaining):
+                char_width = 2 if self._get_string_width(char) > 1 else 1
+                if current_width + char_width > width:
+                    break
+                current_width += char_width
+                cut_index = i + 1
+            
+            if cut_index == 0:  # 防止死循环
+                cut_index = 1
+            
+            current_line = remaining[:cut_index]
+            lines.append(current_line)
+            remaining = remaining[cut_index:].strip()
+        
+        return lines if lines else ['']
 
     async def display_feed(self, feed_config: FeedConfig):
         while True:
@@ -299,7 +333,7 @@ class NewsReader:
 
                         if content:
                             click.clear()
-                            margin = ' ' * 6
+                            margin = ' ' * 2  # 从6改为2
                             paragraphs = content.split('\n\n')
                             paragraphs = [p.strip() for p in paragraphs if p.strip()]
                             
@@ -307,23 +341,25 @@ class NewsReader:
                                 lang = detect(content)
                                 if lang != 'zh-cn' and lang != 'zh-tw':
                                     click.echo("检测到非中文文章，正在翻译...")
-                                    original_formatted = '\n'.join(
-                                        f"{margin}{line}" for line in paragraphs
-                                    )
-                                    progress_text = "[翻译进行中...]"
-                                    initial_display = self.format_parallel_text(
-                                        original_formatted, 
-                                        progress_text
-                                    )
-                                    click.echo(initial_display)
+                                    click.clear()
                                     
+                                    # 先完成翻译
                                     translation = await self.translate_text(content)
                                     trans_paragraphs = translation.split('\n\n')
                                     trans_paragraphs = [p.strip() for p in trans_paragraphs if p.strip()]
                                     
+                                    # 准备显示内容
+                                    original_formatted = '\n'.join(
+                                        f"{margin}{line}" for line in paragraphs
+                                    )
+                                    translation_formatted = '\n'.join(
+                                        f"{margin}{line}" for line in trans_paragraphs
+                                    )
+                                    
+                                    # 翻译完成后再格式化显示
                                     formatted_content = self.format_parallel_text(
                                         original_formatted,
-                                        '\n'.join(f"{margin}{line}" for line in trans_paragraphs)
+                                        translation_formatted
                                     )
                                 else:
                                     formatted_content = '\n'.join(

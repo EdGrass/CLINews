@@ -1,4 +1,3 @@
-
 # CLI News
 
 ---
@@ -9,7 +8,7 @@
 
 ![](https://i.imgur.com/ydxAA7H.png)
 
-![](https://i.imgur.com/hnDCSWP.png)
+![](https://i.imgur.com/ebdRoFF.png)
 
 ![](https://i.imgur.com/wyZgwnq.png)
 
@@ -21,6 +20,7 @@
 - 提供 **中文翻译** 功能（可以方便的改为其他语言），支持多语言新闻的翻译
 - 支持自定义 **RSS feed** 配置
 - 简单易用的 **命令行界面**
+- 贴心的 **终端适配**
 
 ---
 
@@ -55,13 +55,19 @@ pip install -r requirements.txt
 
 ### 4. 创建符号链接（可选）
 
-为了方便运行 **CLI News**，你可以将其创建为全局可执行命令：
+为了方便运行 **CLI News**，你可以将其创建为全局可执行命令。
 
+在 **macOS/Linux** 系统下：
 ```sh
-sudo ln -s /Users/edgrass/Documents/Vscode/CLI\ News/CLINews.py /usr/local/bin/News
+# 将 /path/to/CLINews 替换为你的实际项目路径
+sudo ln -s "/path/to/CLINews/CLINews.py" /usr/local/bin/News
 ```
 
-如果你使用的是 **Windows** 系统，可以考虑手动将 `CLINews.py` 文件路径添加到系统环境变量中。
+在 **Windows** 系统下：
+1. 打开系统环境变量设置
+2. 编辑 `Path` 环境变量
+3. 添加 CLINews.py 所在的完整目录路径
+4. 也可以创建一个 .bat 文件来启动程序
 
 ---
 
@@ -83,7 +89,23 @@ News
 
 ### 阅读新闻
 
-程序启动后，**CLI News** 会自动从配置中的 **RSS feed** 获取新闻并显示。你可以使用 `LESS COMMANDS`（例如 `h` 键）来查看更多帮助。
+程序启动后，**CLI News** 会自动从配置中的 **RSS feed** 获取新闻并显示：
+
+对于非中文文章（可以设置为别的语言）：
+- 原文和翻译并排显示
+- 使用 `|` 分隔符将屏幕分为左右两栏
+- 左侧显示原文，右侧显示中文翻译
+- 段落自动对齐，保持阅读连贯性
+
+对于中文文章（同上）：
+- 全屏显示原文内容
+- 自动调整段落格式
+- 保持原文排版风格
+
+通用功能：
+- 支持 `LESS COMMANDS`（按 `h` 键查看更多帮助）
+- 自动适应终端大小
+- 智能分页显示
 
 ---
 
@@ -137,26 +159,6 @@ interests = {
 	```
 
 5. 保存文件并重新运行程序。
-
----
-
-## 🛠️ 常见问题
-
-### 1. `No such file or directory` 错误
-
-如果你在创建符号链接时遇到 `No such file or directory` 错误，通常是因为路径中有空格。可以使用以下两种方法之一解决：
-
-- **方法 1**：使用引号包裹路径：
-
-  ```sh
-  sudo ln -s "/Users/edgrass/Documents/Vscode/CLI News/CLINews.py" /usr/local/bin/News
-  ```
-
-- **方法 2**：使用反斜杠转义空格：
-
-  ```sh
-  sudo ln -s /Users/edgrass/Documents/Vscode/CLI\ News/CLINews.py /usr/local/bin/News
-  ```
 
 ---
 
