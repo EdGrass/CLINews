@@ -1,24 +1,23 @@
 #!/Users/edgrass/Documents/Vscode/CLINews/venv/bin/python3
-
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+import sys  
+import math
+import time
+import click
+import curses
 import asyncio
 import aiohttp
-from bs4 import BeautifulSoup
-import click
-from readability import Document
+import textwrap
 import feedparser
-from functools import lru_cache
-import time
-import curses
-import sys  
+from pathlib import Path
 from string import Template
 from sites import interests  
-from deep_translator import GoogleTranslator
 from langdetect import detect
-import math
-import textwrap
+from bs4 import BeautifulSoup
+from functools import lru_cache
+from readability import Document
+from dataclasses import dataclass
+from deep_translator import GoogleTranslator
+from typing import Dict, List, Optional, Tuple, Any
 
 @dataclass
 class FeedConfig:
@@ -29,9 +28,17 @@ class FeedConfig:
     headers: Optional[dict] = None
 
 class NewsReader:
+    def _init_terminal_size(self) -> None:
+        try:
+            screen = curses.initscr()
+            self.window_rows, self.window_cols = screen.getmaxyx()
+            curses.endwin()
+        except curses.error:
+            pass
+
     def __init__(self):
-        self.ua = "cmdline-news/2.0 +http://github.com/dpapathanasiou/cmdline-news"
-        self.window_cols = 160  # 增加默认宽度以确保显示完整
+        self.ua = "cmdline-news/2.0 +http://github.com/edgrass/cmdline-news"
+        self.window_cols = 160  
         self.window_rows = 40
         self._init_terminal_size()
         self._cache: Dict[str, Tuple[float, Any]] = {}
@@ -43,17 +50,9 @@ class NewsReader:
         self.translator = GoogleTranslator(source='auto', target='zh-CN')
         self.separator = " | " 
         total_width = self.window_cols - len(self.separator)
-        self.left_width = total_width // 2   # 左侧占一半
-        self.right_width = total_width - self.left_width  # 右侧占剩余空间（处理奇数情况）
-        self.wrap_width = self.left_width  # 保持兼容性
-
-    def _init_terminal_size(self) -> None:
-        try:
-            screen = curses.initscr()
-            self.window_rows, self.window_cols = screen.getmaxyx()
-            curses.endwin()
-        except curses.error:
-            pass
+        self.left_width = total_width // 2   
+        self.right_width = total_width - self.left_width  
+        self.wrap_width = self.left_width  
 
     def _purge_expired(self):
         now = time.time()
@@ -100,7 +99,7 @@ class NewsReader:
             if 'zhihu.com' in url:
                 if getattr(feed_config, 'use_mobile', False):
                     url = url.replace('www.zhihu.com', 'm.zhihu.com')
-                click.echo(f"正在获取知乎文章: {url}") 
+                click.echo(f"Fetching Zhihu article: {url}") 
                 
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url, headers=headers, allow_redirects=True) as response:
@@ -123,14 +122,14 @@ class NewsReader:
                             selectors = mobile_selectors if getattr(feed_config, 'use_mobile', False) else desktop_selectors
                             
                             for selector in selectors:
-                                click.echo(f"尝试使用选择器: {selector}")  
+                                click.echo(f"Trying selector: {selector}")  
                                 content_div = soup.select_one(selector)
                                 if content_div:
                                     text = content_div.get_text(separator='\n\n')
                                     if text.strip():
                                         return text.strip()
                             
-                            click.echo("未能找到文章内容，保存HTML以供调试...")  
+                            click.echo("Content not found, saving HTML for debugging...")  
                             with open('debug_zhihu.html', 'w', encoding='utf-8') as f:
                                 f.write(html)
                                 
@@ -141,15 +140,15 @@ class NewsReader:
                         soup = BeautifulSoup(content, 'html.parser')
                         return soup.get_text(separator='\n\n').strip()
                     else:
-                        click.echo(f"获取文章失败: HTTP {response.status}")
+                        click.echo(f"Failed to fetch article: HTTP {response.status}")
                         click.echo(f"URL: {url}")
                         if response.status == 403:
-                            click.echo("访问被拒绝，可能是因为:")
-                            click.echo("1. 需要登录")
-                            click.echo("2. 触发了反爬虫机制")
-                            click.echo("3. 文章可能已被删除或设为私密")
+                            click.echo("Access denied, possible reasons:")
+                            click.echo("1. Login required")
+                            click.echo("2. Anti-scraping protection triggered")
+                            click.echo("3. Article may be deleted or private")
         except Exception as e:
-            click.echo(f"获取文章时出错: {str(e)}")
+            click.echo(f"Error fetching article: {str(e)}")
             click.echo(f"URL: {url}")
             import traceback
             click.echo(traceback.format_exc())  
@@ -190,13 +189,12 @@ class NewsReader:
     def _get_string_width(self, s: str) -> int:
         width = 0
         for char in s:
-            # 更精确的东亚字符宽度判断
             if any([
-                '\u4e00' <= char <= '\u9fff',  # CJK统一汉字
-                '\u3000' <= char <= '\u303f',  # CJK标点符号
-                '\u3040' <= char <= '\u309f',  # 平假名
-                '\u30a0' <= char <= '\u30ff',  # 片假名
-                '\uff00' <= char <= '\uffef'   # 全角字符
+                '\u4e00' <= char <= '\u9fff',
+                '\u3000' <= char <= '\u303f',
+                '\u3040' <= char <= '\u309f',
+                '\u30a0' <= char <= '\u30ff',
+                '\uff00' <= char <= '\uffef'
             ]):
                 width += 2
             else:
@@ -220,7 +218,6 @@ class NewsReader:
         original_paragraphs = original.split('\n')
         translation_paragraphs = translation.split('\n')
         
-        # 确保段落数量相同
         max_paragraphs = max(len(original_paragraphs), len(translation_paragraphs))
         original_paragraphs.extend([''] * (max_paragraphs - len(original_paragraphs)))
         translation_paragraphs.extend([''] * (max_paragraphs - len(translation_paragraphs)))
@@ -232,32 +229,26 @@ class NewsReader:
                 formatted_lines.append('')
                 continue
             
-            # 使用相同的宽度限制处理原文和翻译
             orig_lines = self._wrap_text_to_width(orig_p.strip(), self.left_width)
             trans_lines = self._wrap_text_to_width(trans_p.strip(), self.right_width)
             
-            # 确保两侧行数相同
             max_lines = max(len(orig_lines), len(trans_lines))
             orig_lines.extend([''] * (max_lines - len(orig_lines)))
             trans_lines.extend([''] * (max_lines - len(trans_lines)))
             
-            # 组装每一行
             for o, t in zip(orig_lines, trans_lines):
                 o_width = self._get_string_width(o)
                 t_width = self._get_string_width(t)
                 
-                # 添加填充以保持对齐
                 left_padding = ' ' * (self.left_width - o_width)
                 right_padding = ' ' * (self.right_width - t_width)
                 
                 line = f"{o}{left_padding}{self.separator}{t}{right_padding}"
                 formatted_lines.append(line)
             
-            # 段落之间添加空行
             if orig_p.strip() or trans_p.strip():
                 formatted_lines.append('')
         
-        # 清理多余的空行
         while formatted_lines and not formatted_lines[0].strip():
             formatted_lines.pop(0)
         while formatted_lines and not formatted_lines[-1].strip():
@@ -266,7 +257,6 @@ class NewsReader:
         return '\n'.join(formatted_lines)
 
     def _wrap_text_to_width(self, text: str, width: int) -> List[str]:
-        """将文本按照指定宽度换行，考虑CJK字符"""
         lines = []
         remaining = text
         
@@ -281,7 +271,7 @@ class NewsReader:
                 current_width += char_width
                 cut_index = i + 1
             
-            if cut_index == 0:  # 防止死循环
+            if cut_index == 0:
                 cut_index = 1
             
             current_line = remaining[:cut_index]
@@ -333,22 +323,20 @@ class NewsReader:
 
                         if content:
                             click.clear()
-                            margin = ' ' * 2  # 从6改为2
+                            margin = ' ' * 2
                             paragraphs = content.split('\n\n')
                             paragraphs = [p.strip() for p in paragraphs if p.strip()]
                             
                             try:
                                 lang = detect(content)
                                 if lang != 'zh-cn' and lang != 'zh-tw':
-                                    click.echo("检测到非中文文章，正在翻译...")
+                                    click.echo("Detected non-Chinese article, translating...")
                                     click.clear()
                                     
-                                    # 先完成翻译
                                     translation = await self.translate_text(content)
                                     trans_paragraphs = translation.split('\n\n')
                                     trans_paragraphs = [p.strip() for p in trans_paragraphs if p.strip()]
                                     
-                                    # 准备显示内容
                                     original_formatted = '\n'.join(
                                         f"{margin}{line}" for line in paragraphs
                                     )
@@ -356,7 +344,6 @@ class NewsReader:
                                         f"{margin}{line}" for line in trans_paragraphs
                                     )
                                     
-                                    # 翻译完成后再格式化显示
                                     formatted_content = self.format_parallel_text(
                                         original_formatted,
                                         translation_formatted
@@ -369,7 +356,7 @@ class NewsReader:
                                 click.clear()
                                 click.echo_via_pager(formatted_content)
                             except Exception as e:
-                                click.echo(f"翻译过程中出错: {str(e)}")
+                                click.echo(f"Translation error: {str(e)}")
                                 formatted_content = '\n'.join(
                                     f"{margin}{line}" for line in paragraphs
                                 )
@@ -417,7 +404,7 @@ class NewsReader:
                         config = FeedConfig(url=feed)
                         await self.display_feed(config)
                     else:
-                        click.echo(f"未找到源 '{feed}'，请使用 ! 查看可用的源列表")
+                        click.echo(f"Source '{feed}' not found, use ! to see available sources")
                 
             except Exception as e:
                 click.echo(f"Error processing feed: {e}", err=True)
